@@ -47,5 +47,5 @@ set(CMAKE_CXX_FLAGS "-O3")
 
 # Color to binary image node
 add_executable(soft_robot_tracker src/soft_robot_tracker.cpp)
-add_dependencies(soft_robot_tracker ${catkin_EXPORTED_TARGETS})
+add_dependencies(soft_robot_tracker ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_gencpp)
 target_link_libraries(soft_robot_tracker ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})

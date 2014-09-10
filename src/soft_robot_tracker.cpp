@@ -11,6 +11,13 @@
 #define _USE_MATH_DEFINES
 #define snap(x) ((x)>=0?(int)((x)+0.5):(int)((x)-0.5))
 
+struct trackingItem {
+    cv::Point2f trackingMarker;
+    int trackedPixels;
+    cv::Scalar lowerBound;
+    cv::Scalar upperBound;
+};
+
 class SoftRobotTracker
 {
 protected:
@@ -84,12 +91,12 @@ public:
         ////////////////////////////////////////////////
         ///// Mask the image to what we care about /////
         ////////////////////////////////////////////////
-        // We're going to (safely) assume that these corners won't change during testing
+        // We're /*going to (safely) assume that these corners won't change during testing
         std::vector<cv::Point2i> vertices(4);
-        vertices[0] = cv::Point2i(210, 50);
-        vertices[1] = cv::Point2i(700, 50);
-        vertices[2] = cv::Point2i(700, 420);
-        vertices[3] = cv::Point2i(210, 420);
+        vertices[0] = cv::Point2i(0, 0);
+        vertices[1] = cv::Point2i(1000, 0);
+        vertices[2] = cv::Point2i(1000, 600);
+        vertices[3] = cv::Point2i(0, 600);
         // Mask out everything beyond the corners to avoid noise
         cv::Mat mask(cv::Size(resized_width_, resized_height_), CV_8UC1);
         mask.setTo(0);
@@ -100,11 +107,30 @@ public:
         ///////////////////////////////////////////////////////////
         ///// Track the orange tip marker in the masked image /////
         ///////////////////////////////////////////////////////////
-        cv::Point2f tracking_marker(0.0, 0.0);
-        int tracked_pixels = 0;
-        // Define the color bounds for the tracking marker (RGB!)
-        cv::Scalar lower_bound(140, 30, 0);
-        cv::Scalar upper_bound(225, 120, 60);
+        struct trackingItem greenSpot;
+        greenSpot.trackingMarker = cv::Point2f(0.0, 0.0);
+        greenSpot.trackedPixels = 0;
+        greenSpot.lowerBound = cv::Scalar(0, 121, 0);
+        greenSpot.upperBound = cv::Scalar(120, 255, 120);
+
+        struct trackingItem redSpot;
+        redSpot.trackingMarker = cv::Point2f(0.0, 0.0);
+        redSpot.trackedPixels = 0;
+        redSpot.lowerBound = cv::Scalar(121, 0, 0);
+        redSpot.upperBound = cv::Scalar(255, 120, 120);
+
+        struct trackingItem yellowSpot;
+        yellowSpot.trackingMarker = cv::Point2f(0.0, 0.0);
+        yellowSpot.trackedPixels = 0;
+        yellowSpot.lowerBound = cv::Scalar(121, 121, 0);
+        yellowSpot.upperBound = cv::Scalar(255, 255, 120);
+
+        struct trackingItem blueSpot;
+        blueSpot.trackingMarker = cv::Point2f(0.0, 0.0);
+        blueSpot.trackedPixels = 0;
+        blueSpot.lowerBound = cv::Scalar(0, 0, 121);
+        blueSpot.upperBound = cv::Scalar(120, 120, 255);
+
         // Because InRangeS is shit, use our own
         for (size_t i = 0; i < masked_resized.rows; i++)
         {
@@ -115,42 +141,81 @@ public:
                 uint8_t green = pixel[1];
                 uint8_t red = pixel[0];
                 // First, check if the pixel is inside the range we want
-                if (blue >= lower_bound[2] && blue <= upper_bound[2] && green >= lower_bound[1] && green <= upper_bound[1] && red >= lower_bound[0] && red <= upper_bound[0])
+                if (blue >=  greenSpot.lowerBound[2] && blue <=  greenSpot.upperBound[2] &&
+                    green >= greenSpot.lowerBound[1] && green <= greenSpot.upperBound[1] &&
+                    red >=   greenSpot.lowerBound[0] && red <=   greenSpot.upperBound[0])
+                {
+                    // Now, check to make sure the pixel has the right dominant color
+                    if (green > (red + 20) && green > (blue + 20))
+                    {
+                        greenSpot.trackingMarker.x += (float)j;
+                        greenSpot.trackingMarker.y += (float)i;
+                        greenSpot.trackedPixels++;
+                    }
+                }
+                else if (blue >=  redSpot.lowerBound[2] && blue <=  redSpot.upperBound[2] &&
+                         green >= redSpot.lowerBound[1] && green <= redSpot.upperBound[1] &&
+                         red >=   redSpot.lowerBound[0] && red <=   redSpot.upperBound[0])
+                {
+                    // Now, check to make sure the pixel has the right dominant color
+                    if (red > (blue + 20) && red > (green + 20))
+                    {
+                        redSpot.trackingMarker.x += (float)j;
+                        redSpot.trackingMarker.y += (float)i;
+                        redSpot.trackedPixels++;
+                    }
+                }
+                else if (blue >=  yellowSpot.lowerBound[2] && blue <=  yellowSpot.upperBound[2] &&
+                         green >= yellowSpot.lowerBound[1] && green <= yellowSpot.upperBound[1] &&
+                         red >=   yellowSpot.lowerBound[0] && red <=   yellowSpot.upperBound[0])
                 {
                     // Now, check to make sure the pixel has the right dominant color
                     if (red > (blue + 20) && green > (blue + 20))
                     {
-                        tracking_marker.x += (float)j;
-                        tracking_marker.y += (float)i;
-                        tracked_pixels++;
+                        yellowSpot.trackingMarker.x += (float)j;
+                        yellowSpot.trackingMarker.y += (float)i;
+                        yellowSpot.trackedPixels++;
+                    }
+                }
+                else if (blue >=  blueSpot.lowerBound[2] && blue <=  blueSpot.upperBound[2] &&
+                         green >= blueSpot.lowerBound[1] && green <= blueSpot.upperBound[1] &&
+                         red >=   blueSpot.lowerBound[0] && red <=   blueSpot.upperBound[0])
+                {
+                    // Now, check to make sure the pixel has the right dominant color
+                    if (blue > (red + 20) && blue > (green + 20))
+                    {
+                        blueSpot.trackingMarker.x += (float)j;
+                        blueSpot.trackingMarker.y += (float)i;
+                        blueSpot.trackedPixels++;
                     }
                 }
             }
         }
         // Now, compute the average x and y values for the tracked marker
-        tracking_marker.x = tracking_marker.x / (float)tracked_pixels;
-        tracking_marker.y = tracking_marker.y / (float)tracked_pixels;
-        ROS_INFO("Tracking marker found with center %f (x) %f (y)", tracking_marker.x, tracking_marker.y);
-        //////////////////////////////////////////////
-        ///// Estimate the angle of the actuator /////
-        //////////////////////////////////////////////
-        // We assume we know the base location of the actuator
-        cv::Point2f actuator_base(530.0, 105.0);
-        // Let's do some trig
-        double delta_x = tracking_marker.x - actuator_base.x;
-        double delta_y = tracking_marker.y - actuator_base.y;
-        double estimated_angle = -(M_PI_2 - atan2(delta_y, delta_x));
-        ROS_INFO("Estimated actuator angle %f", estimated_angle);
+        greenSpot.trackingMarker.x = greenSpot.trackingMarker.x / (float)greenSpot.trackedPixels;
+        greenSpot.trackingMarker.y = greenSpot.trackingMarker.y / (float)greenSpot.trackedPixels;
+        ROS_INFO("Green tracking marker found with center %f (x) %f (y)", greenSpot.trackingMarker.x, greenSpot.trackingMarker.y);
+
+        redSpot.trackingMarker.x = redSpot.trackingMarker.x / (float)redSpot.trackedPixels;
+        redSpot.trackingMarker.y = redSpot.trackingMarker.y / (float)redSpot.trackedPixels;
+        ROS_INFO("Red tracking marker found with center %f (x) %f (y)", redSpot.trackingMarker.x, redSpot.trackingMarker.y);
+
+        yellowSpot.trackingMarker.x = yellowSpot.trackingMarker.x / (float)yellowSpot.trackedPixels;
+        yellowSpot.trackingMarker.y = yellowSpot.trackingMarker.y / (float)yellowSpot.trackedPixels;
+        ROS_INFO("Yellow tracking marker found with center %f (x) %f (y)", yellowSpot.trackingMarker.x, yellowSpot.trackingMarker.y);
+
+        blueSpot.trackingMarker.x = blueSpot.trackingMarker.x / (float)blueSpot.trackedPixels;
+        blueSpot.trackingMarker.y = blueSpot.trackingMarker.y / (float)blueSpot.trackedPixels;
+        ROS_INFO("Blue tracking marker found with center %f (x) %f (y)", blueSpot.trackingMarker.x, blueSpot.trackingMarker.y);
+
         /////////////////////////////////////////////////////
-        ///// Publish the tracked angle and debug image /////
+        ///// Publish the debug image /////
         /////////////////////////////////////////////////////
-        // Publish the estimated angle
-        std_msgs::Float64 tracking_msg;
-        tracking_msg.data = estimated_angle;
-        tracking_pub_.publish(tracking_msg);
         // Make the debug image with checkboard centers, actuator base, and actuator tip drawn in
-        cv::circle(masked_resized, cv::Point2i(snap(actuator_base.x), snap(actuator_base.y)), 5, cv::Scalar(0xff, 0x00, 0x00), -1);
-        cv::circle(masked_resized, cv::Point2i(snap(tracking_marker.x), snap(tracking_marker.y)), 5, cv::Scalar(0xff, 0x8c, 0x00), -1);
+        cv::circle(masked_resized, cv::Point2i(snap(greenSpot.trackingMarker.x), snap(greenSpot.trackingMarker.y)), 5, cv::Scalar(0xff, 0x00, 0xff), -1);
+        cv::circle(masked_resized, cv::Point2i(snap(redSpot.trackingMarker.x), snap(redSpot.trackingMarker.y)), 5, cv::Scalar(0x00, 0xff, 0xff), -1);
+        cv::circle(masked_resized, cv::Point2i(snap(yellowSpot.trackingMarker.x), snap(yellowSpot.trackingMarker.y)), 5, cv::Scalar(0x00, 0x00, 0xff), -1);
+        cv::circle(masked_resized, cv::Point2i(snap(blueSpot.trackingMarker.x), snap(blueSpot.trackingMarker.y)), 5, cv::Scalar(0xff, 0xff, 0x00), -1);
         // Convert back to ROS
         sensor_msgs::Image debug_image;
         cv_bridge::CvImage debug_converted(image->header, sensor_msgs::image_encodings::RGB8, masked_resized);
@@ -171,7 +236,7 @@ int main(int argc, char** argv)
     std::string tracked_angle_topic;
     int resized_width;
     int resized_height;
-    nhp.param(std::string("camera_base_topic"), camera_base_topic, std::string("logitech_hd_cam/image"));
+    nhp.param(std::string("camera_base_topic"), camera_base_topic, std::string("usb_cam/image"));
     nhp.param(std::string("debug_output_topic"), debug_output_topic, std::string("fea/debug"));
     nhp.param(std::string("checkerboard_center_topic"), tracked_angle_topic, std::string("fea/position"));
     nhp.param(std::string("resized_width"), resized_width, 960);
