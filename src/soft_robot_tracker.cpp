@@ -56,8 +56,18 @@ public:
         }
     }
 
-    void camera_cb(const sensor_msgs::ImageConstPtr& image)
-    {
+    void checkColor(trackingItem *item, uint8_t red, uint8_t green, uint8_t blue, size_t i, size_t j) {
+        if (blue >=  item->lowerBound[2] && blue <=  item->upperBound[2] &&
+            green >= item->lowerBound[1] && green <= item->upperBound[1] &&
+            red >=   item->lowerBound[0] && red <=   item->upperBound[0])
+        {
+            item->trackingMarker.x += (float)j;
+            item->trackingMarker.y += (float)i;
+            item->trackedPixels++;
+        }
+    }
+
+    void camera_cb(const sensor_msgs::ImageConstPtr& image) {
         ROS_INFO("Got new image to resize and track");
         // Convert to OpenCV
         cv_bridge::CvImagePtr cv_ptr;
@@ -70,40 +80,13 @@ public:
             ROS_ERROR("cv_bridge exception: %s", e.what());
             return;
         }
-        // Make destination
-        cv::Mat resized(cv::Size(resized_width_, resized_height_), CV_8UC3);
-        // Resize image
-        if (resized_width_ < image->width && resized_height_ < image->height)
-        {
-            // If we're resizing smaller, use CV_INTER_AREA interpolation
-            cv::resize(cv_ptr->image, resized, resized.size(), 0.0, 0.0, CV_INTER_AREA);
-        }
-        else
-        {
-            // If we're resizing bigger, use CV_INTER_LINEAR interpolation
-            cv::resize(cv_ptr->image, resized, resized.size(), 0.0, 0.0, CV_INTER_LINEAR);
-        }
-        // Filter the resized image
-        cv::Mat filtered_resized(cv::Size(resized_width_, resized_height_), CV_8UC3);
+
+        // Filter the image
+        cv::Mat filtered(cv::Size(image->width, image->height), CV_8UC3);
         cv::Mat color_mean_kernel(1, 1, CV_32FC1);
         color_mean_kernel.setTo(1.0);
-        cv::filter2D(resized, filtered_resized, CV_8UC3, color_mean_kernel);
-        ////////////////////////////////////////////////
-        ///// Mask the image to what we care about /////
-        ////////////////////////////////////////////////
-        // We're /*going to (safely) assume that these corners won't change during testing
-        std::vector<cv::Point2i> vertices(4);
-        vertices[0] = cv::Point2i(0, 0);
-        vertices[1] = cv::Point2i(1000, 0);
-        vertices[2] = cv::Point2i(1000, 600);
-        vertices[3] = cv::Point2i(0, 600);
-        // Mask out everything beyond the corners to avoid noise
-        cv::Mat mask(cv::Size(resized_width_, resized_height_), CV_8UC1);
-        mask.setTo(0);
-        cv::fillConvexPoly(mask, vertices, cv::Scalar(0xff));
-        cv::Mat masked_resized(cv::Size(resized_width_, resized_height_), CV_8UC3);
-        masked_resized.setTo(cv::Vec3b(0,0,0));
-        filtered_resized.copyTo(masked_resized, mask);
+        cv::filter2D(cv_ptr->image, filtered, CV_8UC3, color_mean_kernel);
+
         ///////////////////////////////////////////////////////////
         ///// Track the orange tip marker in the masked image /////
         ///////////////////////////////////////////////////////////
@@ -132,63 +115,19 @@ public:
         blueSpot.upperBound = cv::Scalar(120, 120, 255);
 
         // Because InRangeS is shit, use our own
-        for (size_t i = 0; i < masked_resized.rows; i++)
+        for (size_t i = 0; i < filtered.rows; i++)
         {
-            for (size_t j = 0; j < masked_resized.cols; j++)
+            for (size_t j = 0; j < filtered.cols; j++)
             {
-                cv::Vec3b pixel = masked_resized.at<cv::Vec3b>(i,j);
+                cv::Vec3b pixel = filtered.at<cv::Vec3b>(i,j);
                 uint8_t blue = pixel[2];
                 uint8_t green = pixel[1];
                 uint8_t red = pixel[0];
-                // First, check if the pixel is inside the range we want
-                if (blue >=  greenSpot.lowerBound[2] && blue <=  greenSpot.upperBound[2] &&
-                    green >= greenSpot.lowerBound[1] && green <= greenSpot.upperBound[1] &&
-                    red >=   greenSpot.lowerBound[0] && red <=   greenSpot.upperBound[0])
-                {
-                    // Now, check to make sure the pixel has the right dominant color
-                    if (green > (red + 20) && green > (blue + 20))
-                    {
-                        greenSpot.trackingMarker.x += (float)j;
-                        greenSpot.trackingMarker.y += (float)i;
-                        greenSpot.trackedPixels++;
-                    }
-                }
-                else if (blue >=  redSpot.lowerBound[2] && blue <=  redSpot.upperBound[2] &&
-                         green >= redSpot.lowerBound[1] && green <= redSpot.upperBound[1] &&
-                         red >=   redSpot.lowerBound[0] && red <=   redSpot.upperBound[0])
-                {
-                    // Now, check to make sure the pixel has the right dominant color
-                    if (red > (blue + 20) && red > (green + 20))
-                    {
-                        redSpot.trackingMarker.x += (float)j;
-                        redSpot.trackingMarker.y += (float)i;
-                        redSpot.trackedPixels++;
-                    }
-                }
-                else if (blue >=  yellowSpot.lowerBound[2] && blue <=  yellowSpot.upperBound[2] &&
-                         green >= yellowSpot.lowerBound[1] && green <= yellowSpot.upperBound[1] &&
-                         red >=   yellowSpot.lowerBound[0] && red <=   yellowSpot.upperBound[0])
-                {
-                    // Now, check to make sure the pixel has the right dominant color
-                    if (red > (blue + 20) && green > (blue + 20))
-                    {
-                        yellowSpot.trackingMarker.x += (float)j;
-                        yellowSpot.trackingMarker.y += (float)i;
-                        yellowSpot.trackedPixels++;
-                    }
-                }
-                else if (blue >=  blueSpot.lowerBound[2] && blue <=  blueSpot.upperBound[2] &&
-                         green >= blueSpot.lowerBound[1] && green <= blueSpot.upperBound[1] &&
-                         red >=   blueSpot.lowerBound[0] && red <=   blueSpot.upperBound[0])
-                {
-                    // Now, check to make sure the pixel has the right dominant color
-                    if (blue > (red + 20) && blue > (green + 20))
-                    {
-                        blueSpot.trackingMarker.x += (float)j;
-                        blueSpot.trackingMarker.y += (float)i;
-                        blueSpot.trackedPixels++;
-                    }
-                }
+
+                checkColor(&greenSpot,  red, green, blue, i, j);
+                checkColor(&redSpot,    red, green, blue, i ,j);
+                checkColor(&yellowSpot, red, green, blue, i, j);
+                checkColor(&blueSpot,   red, green, blue, i, j);
             }
         }
         // Now, compute the average x and y values for the tracked marker
@@ -212,13 +151,13 @@ public:
         ///// Publish the debug image /////
         /////////////////////////////////////////////////////
         // Make the debug image with checkboard centers, actuator base, and actuator tip drawn in
-        cv::circle(masked_resized, cv::Point2i(snap(greenSpot.trackingMarker.x), snap(greenSpot.trackingMarker.y)), 5, cv::Scalar(0xff, 0x00, 0xff), -1);
-        cv::circle(masked_resized, cv::Point2i(snap(redSpot.trackingMarker.x), snap(redSpot.trackingMarker.y)), 5, cv::Scalar(0x00, 0xff, 0xff), -1);
-        cv::circle(masked_resized, cv::Point2i(snap(yellowSpot.trackingMarker.x), snap(yellowSpot.trackingMarker.y)), 5, cv::Scalar(0x00, 0x00, 0xff), -1);
-        cv::circle(masked_resized, cv::Point2i(snap(blueSpot.trackingMarker.x), snap(blueSpot.trackingMarker.y)), 5, cv::Scalar(0xff, 0xff, 0x00), -1);
+        cv::circle(filtered, cv::Point2i(snap(greenSpot.trackingMarker.x), snap(greenSpot.trackingMarker.y)), 5, cv::Scalar(0xff, 0x00, 0xff), -1);
+        cv::circle(filtered, cv::Point2i(snap(redSpot.trackingMarker.x), snap(redSpot.trackingMarker.y)), 5, cv::Scalar(0x00, 0xff, 0xff), -1);
+        cv::circle(filtered, cv::Point2i(snap(yellowSpot.trackingMarker.x), snap(yellowSpot.trackingMarker.y)), 5, cv::Scalar(0x00, 0x00, 0xff), -1);
+        cv::circle(filtered, cv::Point2i(snap(blueSpot.trackingMarker.x), snap(blueSpot.trackingMarker.y)), 5, cv::Scalar(0xff, 0xff, 0x00), -1);
         // Convert back to ROS
         sensor_msgs::Image debug_image;
-        cv_bridge::CvImage debug_converted(image->header, sensor_msgs::image_encodings::RGB8, masked_resized);
+        cv_bridge::CvImage debug_converted(image->header, sensor_msgs::image_encodings::RGB8, filtered);
         debug_converted.toImageMsg(debug_image);
         debug_pub_.publish(debug_image);
         ROS_INFO("Tracking operation finished");
